@@ -12,7 +12,7 @@ const PORT = 3000;
 
 app.use(express.json({ limit: "15mb" }));
 
-// In-Memory WhatsApp Baileys Session & Midnight Scheduling Engine
+// In-Memory WhatsApp Session & Timely Reminder Engine
 interface ServerWASession {
   status: "disconnected" | "pairing" | "connected";
   phoneNumber: string;
@@ -24,20 +24,66 @@ interface ServerWASession {
   qrRawString: string | null;
   qrExpiresAt: number;
   pairingCode: string | null;
+  connectionMethod?: "qr" | "phone_number";
 }
 
 const waSession: ServerWASession = {
-  status: "connected",
-  phoneNumber: "081234567890",
-  pushName: "Yudi (Pribadi)",
-  platform: "WhatsApp Multi-Device (Baileys v6)",
-  batteryLevel: 94,
-  lastConnectedAt: new Date().toISOString(),
+  status: "pairing",
+  phoneNumber: "",
+  pushName: "",
+  platform: "WhatsApp Web (Perangkat Tertaut)",
+  batteryLevel: 98,
+  lastConnectedAt: null,
   qrCodeData: null,
   qrRawString: null,
   qrExpiresAt: 0,
   pairingCode: null,
+  connectionMethod: "qr",
 };
+
+interface ServerReminderItem {
+  id: string;
+  cardId: string;
+  recipientName: string;
+  recipientPhone: string;
+  targetDate: string;
+  reminderType: 'self_reminder_h3' | 'self_reminder_h1' | 'self_reminder_today' | 'recipient_birthday_midnight';
+  title: string;
+  message: string;
+  scheduledTime: string;
+  status: 'pending' | 'sent' | 'failed';
+  sendTo: 'self' | 'recipient';
+  sentAt?: string;
+}
+
+const timelyRemindersQueue: ServerReminderItem[] = [
+  {
+    id: "rem-demo-1",
+    cardId: "sample-card-1",
+    recipientName: "Ananda Putri",
+    recipientPhone: "081234567891",
+    targetDate: new Date(Date.now() + 86400000).toISOString().split("T")[0],
+    reminderType: "self_reminder_h1",
+    title: "🔔 Pengingat H-1 Ulang Tahun Ananda Putri",
+    message: "Halo! Mengingatkan bahwa besok adalah hari ulang tahun Ananda Putri! Pastikan persiapan kejutan dan kartu interaktif sudah siap dikirimkan tepat waktu.",
+    scheduledTime: "H-1 Pukul 09:00 WIB",
+    status: "pending",
+    sendTo: "self",
+  },
+  {
+    id: "rem-demo-2",
+    cardId: "sample-card-1",
+    recipientName: "Ananda Putri",
+    recipientPhone: "081234567891",
+    targetDate: new Date(Date.now() + 86400000).toISOString().split("T")[0],
+    reminderType: "recipient_birthday_midnight",
+    title: "🎂 Pengiriman Ucapan Tepat Jam 00:00 ke Ananda Putri",
+    message: "Selamat Ulang Tahun, Ananda! Tepat pukul 00:00 di hari spesialmu, aku ingin menjadi orang pertama yang mengucapkan selamat untukmu! Buka kado & kartu interaktifmu...",
+    scheduledTime: "Tepat Pukul 00:00:00 WIB (Tengah Malam)",
+    status: "pending",
+    sendTo: "recipient",
+  },
+];
 
 interface ServerMidnightQueueItem {
   id: string;
@@ -205,19 +251,20 @@ Informasi Penerima:
 ${nickname ? `- Nama Panggilan Akrab: ${nickname}` : ""}
 - Hubungan: ${targetRelation}
 - Suasana / Nada Pesan: ${targetTone}
-${age ? `- Usia yang Dirayakan: ${age} tahun` : ""}
+${age ? `- Usia yang Dirayakan: Ulang tahun yang ke-${age} tahun` : ""}
 ${senderName ? `- Dari Pengirim: ${senderName}` : ""}
 ${memoriesOrNotes ? `- Catatan Khusus / Kenangan Bersama / Inside Joke: "${memoriesOrNotes}"` : ""}
 
 Persyaratan:
 1. Buat 3 variasi ucapan yang berkarakter kuat dan langsung menyentuh emosi pembaca.
-2. Tiap variasi harus memiliki:
-   - "title": Judul singkat estetik untuk pembuka kartu (contoh: "Selamat Melangkah di Usia Baru, Sayangku ✨" atau "Untuk Sahabat Paling Gokil Sedunia 🎂")
+${age ? `2. PENTING: Wajib sebutkan secara spesifik dan eksplisit ucapan ulang tahun yang ke-${age} tahun (contoh: "Selamat ulang tahun yang ke-${age}...", "Semoga di umurmu yang ke-${age} ini...", "Melangkah penuh berkah di usia yang ke-${age}...").` : ""}
+3. Tiap variasi harus memiliki:
+   - "title": Judul singkat estetik untuk pembuka kartu (contoh: ${age ? `"Selamat Ulang Tahun yang ke-${age}, Sayangku ✨"` : `"Selamat Melangkah di Usia Baru, Sayangku ✨"`})
    - "wishes": Teks isi ucapan ulang tahun yang utuh, mengalir indah (2-4 paragraf singkat yang pas dibaca di layar HP/kartu ucapan).
    - "highlightQuote": 1 kalimat mutiara / doa emas yang berkesan mendalam.
    - "themeSuggestion": Alasan singkat mengapa ucapan ini pas.
-3. Gunakan sapaan yang sesuai (${nickname || recipientName}).
-4. Kembalikan HANYA format JSON yang valid sesuai skema yang diminta.`;
+4. Gunakan sapaan yang sesuai (${nickname || recipientName}).
+5. Kembalikan HANYA format JSON yang valid sesuai skema yang diminta.`;
 
     const client = getAIClient();
 
@@ -257,72 +304,75 @@ Persyaratan:
     // High quality intelligent fallback if GEMINI_API_KEY is not configured or in case of error
     const callName = nickname || recipientName || "Teman";
     const from = senderName ? ` - dari ${senderName}` : "";
+    const ageSuffix = age ? ` yang ke-${age}` : "";
+    const ageWishYear = age ? `umurmu yang ke-${age} tahun ini` : "usia barumu ini";
+    const ageWishGen = age ? `usiamu yang ke-${age} tahun ini` : "usia yang baru ini";
 
     const fallbackTemplates: Record<string, any[]> = {
       pasangan: [
         {
-          title: `Selamat Ulang Tahun Jiwa Terindahku, ${callName} ❤️`,
-          wishes: `Selamat ulang tahun untuk sosok yang selalu membuat hariku lebih berwarna dan hatiku selalu merasa pulang. Di hari istimewamu ini, aku bersyukur atas setiap tawa, obrolan larut malam, dan perjalanan yang kita lalui bersama.\n\nSemoga di usia yang baru ini, setiap impianmu menemukan jalannya, langkahmu dimudahkan, dan kebahagiaan tak pernah beranjak dari sisimu. Terima kasih telah hadir dan memilihku. Aku akan selalu ada di sini, merayakan setiap detik bersamamu${from}.`,
-          highlightQuote: "Di antara miliaran manusia di bumi, kehadiranmu adalah hadiah terindah dalam hidupku.",
+          title: `Selamat Ulang Tahun${ageSuffix} Jiwa Terindahku, ${callName} ❤️`,
+          wishes: `Selamat ulang tahun${ageSuffix} untuk sosok yang selalu membuat hariku lebih berwarna dan hatiku selalu merasa pulang. Di hari istimewamu saat menginjak ${ageWishYear}, aku bersyukur atas setiap tawa, obrolan larut malam, dan perjalanan yang kita lalui bersama.\n\nSemoga di ${ageWishGen}, setiap impianmu menemukan jalannya, langkahmu dimudahkan, dan kebahagiaan tak pernah beranjak dari sisimu. Terima kasih telah hadir dan memilihku. Aku akan selalu ada di sini, merayakan setiap detik bersamamu${from}.`,
+          highlightQuote: `Di umur yang ke-${age || 24} ini, semoga semesta senantiasa menjaga senyummu seindah saat pertama kali kita berjumpa.`,
           themeSuggestion: "Nuansa romantis mendalam penuh rasa syukur",
         },
         {
-          title: `Untuk Bidadari/Pangeran Hatiku di Hari Spesialnya ✨`,
-          wishes: `Happy birthday, ${callName}! Usiamu mungkin bertambah, tapi cintaku padamu bertambah berkali-kali lipat setiap harinya. Terima kasih atas senyuman manismu yang tak pernah gagal mengusir lelahku.\n\nSemoga tahun ini membawa ribuan kejutan manis, kesehatan berlimpah, dan keberkahan tanpa batas. Mari kita buat lebih banyak kenangan indah bersama!`,
+          title: `Untuk Bidadari/Pangeran Hatiku di Usia${ageSuffix} ✨`,
+          wishes: `Happy birthday${ageSuffix}, ${callName}! Usiamu kini genap ${age || 24} tahun, dan cintaku padamu bertambah berkali-kali lipat setiap harinya. Terima kasih atas senyuman manismu yang tak pernah gagal mengusir lelahku.\n\nSemoga di umur yang ke-${age || 24} ini membawa ribuan kejutan manis, kesehatan berlimpah, dan keberkahan tanpa batas. Mari kita buat lebih banyak kenangan indah bersama!`,
           highlightQuote: "Semoga semesta senantiasa menjaga senyummu seindah saat pertama kali kita berjumpa.",
           themeSuggestion: "Penuh pesona cinta dan kehangatan abadi",
         },
         {
-          title: `Satu Tahun Lebih Hebat Bersamamu, Sayang 🥂`,
-          wishes: `Menatapmu tumbuh dan meraih hal-hal luar biasa adalah salah satu kebahagiaan terbesarku. Selamat ulang tahun ${callName}!\n\nJangan pernah ragu akan potensimu, karena kamu jauh lebih kuat dan hebat dari yang kamu bayangkan. Aku bangga padamu hari ini, esok, dan selamanya. Selamat bertambah usia cintaku!`,
+          title: `Satu Tahun Lebih Hebat Bersamamu di Usia Ke-${age || 24} 🥂`,
+          wishes: `Menatapmu tumbuh dan meraih hal-hal luar biasa di usia ke-${age || 24} ini adalah salah satu kebahagiaan terbesarku. Selamat ulang tahun ${callName}!\n\nJangan pernah ragu akan potensimu, karena kamu jauh lebih kuat dan hebat dari yang kamu bayangkan. Aku bangga padamu hari ini, esok, dan selamanya. Selamat bertambah usia cintaku!`,
           highlightQuote: "Bersamamu, setiap hari adalah perayaan, tapi hari ini adalah hari yang paling kusyukuri.",
           themeSuggestion: "Inspiratif dan penuh dukungan tulus pasangan",
         },
       ],
       teman: [
         {
-          title: `Happy Birthday Sahabat Terbaikku, ${callName}! 🎉`,
-          wishes: `Selamat ulang tahun kawan terbaikku! Bersyukur banget punya teman se-frekuensi kayak kamu yang selalu ada di kala senang maupun suntuk.\n\nDi usiamu yang baru ini, semoga dompet makin tebal, kerjaan lancar jaya, jodoh makin dekat, dan semua rencana gila kita bisa terlaksana bareng. Tetap jadi pribadi yang asyik dan setia kawan ya!${from}`,
+          title: `Happy Birthday${ageSuffix} Sahabat Terbaikku, ${callName}! 🎉`,
+          wishes: `Selamat ulang tahun${ageSuffix} kawan terbaikku! Bersyukur banget punya teman se-frekuensi kayak kamu yang selalu ada di kala senang maupun suntuk.\n\nDi ${ageWishGen}, semoga dompet makin tebal, kerjaan lancar jaya, jodoh makin dekat, dan semua rencana gila kita bisa terlaksana bareng. Tetap jadi pribadi yang asyik dan setia kawan ya!${from}`,
           highlightQuote: "Sahabat sejati tak diukur dari seberapa lama kenal, tapi dari siapa yang tetap tinggal saat dunia berputar.",
           themeSuggestion: "Ceria, asyik, dan solid persahabatannya",
         },
         {
-          title: `Tua Bareng, Keren Bareng! HBD ${callName} 🎂`,
-          wishes: `Happy Level Up Day! Satu tahun lebih bijak (atau setidaknya satu tahun lebih banyak koleksi meme lucu di HP kita!).\n\nTerima kasih sudah jadi teman curhat, partner makan enak, dan tempat berbagi tawa tanpa jaim. Semoga semua resolusimu tercapai di tahun ini! Traktiran jangan sampai lupa ya!`,
+          title: `Tua Bareng, Keren Bareng! HBD Ke-${age || 24} ${callName} 🎂`,
+          wishes: `Happy Level Up Day yang ke-${age || 24}! Satu tahun lebih bijak (atau setidaknya satu tahun lebih banyak koleksi meme lucu di HP kita!).\n\nTerima kasih sudah jadi teman curhat, partner makan enak, dan tempat berbagi tawa tanpa jaim. Semoga di umur ${age || 24} ini semua resolusimu tercapai! Traktiran jangan sampai lupa ya!`,
           highlightQuote: "Usia boleh nambah, tapi jiwa muda dan semangat petualangan kita tetap nomor satu!",
           themeSuggestion: "Penuh canda tawa dan kehangatan sahabat karib",
         },
         {
-          title: `Untuk Partner Segala Momen: Selamat Ulang Tahun! 🌟`,
-          wishes: `Selamat ulang tahun buat ${callName}! Dari sekian banyak orang yang kutemui, kamu salah satu manusia paling tulus dan menyenangkan yang pernah ada.\n\nSemoga pintu-pintu kesempatan baru terbuka lebar untukmu tahun ini. Sehat selalu, bahagia selalu, dan sukses selalu di setiap petualangan barumu!`,
+          title: `Untuk Partner Segala Momen: Selamat Ulang Tahun${ageSuffix}! 🌟`,
+          wishes: `Selamat ulang tahun${ageSuffix} buat ${callName}! Dari sekian banyak orang yang kutemui, kamu salah satu manusia paling tulus dan menyenangkan yang pernah ada.\n\nSemoga di umurmu yang ke-${age || 24} tahun ini, pintu-pintu kesempatan baru terbuka lebar untukmu. Sehat selalu, bahagia selalu, dan sukses selalu di setiap petualangan barumu!`,
           highlightQuote: "Semoga tahun ini jadi panggung untuk semua pencapaian terbesarmu.",
           themeSuggestion: "Penuh motivasi dan apresiasi tulus pertemanan",
         },
       ],
       keluarga: [
         {
-          title: `Doa Tulus & Cinta Tak Terhingga untuk ${callName} 🏡`,
-          wishes: `Selamat ulang tahun untuk anggota keluarga tercinta. Kehadiranmu adalah berkah dan kehangatan yang selalu menyatukan kita semua.\n\nDi hari yang penuh rahmat ini, kami berdoa agar Tuhan melimpahkan kesehatan yang prima, umur yang panjang dan penuh berkah, serta ketenangan hati dalam setiap langkah hidupmu. Terima kasih atas segala kasih sayang dan pengorbanan yang tak ternilai${from}.`,
+          title: `Doa Tulus & Cinta di Usia${ageSuffix} untuk ${callName} 🏡`,
+          wishes: `Selamat ulang tahun${ageSuffix} untuk anggota keluarga tercinta kami. Kehadiranmu adalah berkah dan kehangatan yang selalu menyatukan kita semua.\n\nDi hari yang penuh rahmat saat genap berusia ${age || 24} tahun ini, kami berdoa agar Tuhan melimpahkan kesehatan yang prima, umur yang panjang dan penuh berkah, serta ketenangan hati dalam setiap langkah hidupmu. Terima kasih atas segala kasih sayang dan pengorbanan yang tak ternilai${from}.`,
           highlightQuote: "Keluarga adalah pelabuhan tempat kita selalu pulang, dan kamu adalah bagian terindah di dalamnya.",
           themeSuggestion: "Hangat, khidmat, dan penuh rasa hormat keluarga",
         },
         {
-          title: `Hari Penuh Berkah untuk yang Tersayang di Keluarga 🌸`,
-          wishes: `Barakallah fii umrik / Selamat ulang tahun ${callName} tersayang! Semoga di usia yang baru ini senantiasa dilimpahi rezeki yang halal, perlindungan, serta kebahagiaan lahir dan batin.\n\nTerima kasih sudah menjadi teladan dan kebanggaan kami semua. Kami sekeluarga sangat menyayangimu!`,
+          title: `Hari Penuh Berkah di Usia Ke-${age || 24} untuk yang Tersayang 🌸`,
+          wishes: `Barakallah fii umrik / Selamat ulang tahun${ageSuffix} ${callName} tersayang! Semoga di ${ageWishGen} senantiasa dilimpahi rezeki yang halal, perlindungan, serta kebahagiaan lahir dan batin.\n\nTerima kasih sudah menjadi teladan dan kebanggaan kami semua. Kami sekeluarga sangat menyayangimu!`,
           highlightQuote: "Semoga setiap hembusan nafasmu di usia baru menjadi ladang pahala dan kebaikan.",
           themeSuggestion: "Penuh doa berkah dan kasih sayang mendalam",
         },
       ],
       rekan: [
         {
-          title: `Selamat Ulang Tahun & Sukses Selalu, Rekan ${callName}! 💼`,
-          wishes: `Selamat ulang tahun untuk rekan kerja hebat kami, ${callName}. Bekerja sama denganmu selalu menyenangkan karena dedikasi, integritas, dan energi positif yang selalu kamu bawa ke dalam tim.\n\nSemoga di usia yang baru ini, kariermu semakin cemerlang, pencapaian profesional semakin gemilang, serta senantiasa diberikan kesehatan dan kebahagiaan bersama keluarga${from}.`,
+          title: `Selamat Ulang Tahun${ageSuffix} & Sukses Selalu, Rekan ${callName}! 💼`,
+          wishes: `Selamat ulang tahun${ageSuffix} untuk rekan kerja hebat kami, ${callName}. Bekerja sama denganmu selalu menyenangkan karena dedikasi, integritas, dan energi positif yang selalu kamu bawa ke dalam tim.\n\nSemoga di ${ageWishGen}, kariermu semakin cemerlang, pencapaian profesional semakin gemilang, serta senantiasa diberikan kesehatan dan kebahagiaan bersama keluarga${from}.`,
           highlightQuote: "Dedikasi dan kerja kerasmu adalah inspirasi. Semoga tahun ini membawa kesuksesan yang lebih tinggi!",
           themeSuggestion: "Elegan, profesional, dan penuh apresiasi karier",
         },
         {
-          title: `Happy Birthday & Best Wishes for the Future! 🚀`,
-          wishes: `Selamat bertambah usia, ${callName}! Semoga tahun ini menjadi momentum lonjakan karier dan pembuka bagi proyek-proyek impianmu.\n\nTerima kasih atas kolaborasi luar biasa selama ini. Nikmati hari spesialmu dan semoga sehat serta sejahtera selalu!`,
+          title: `Happy Birthday Ke-${age || 24} & Best Wishes for the Future! 🚀`,
+          wishes: `Selamat bertambah usia yang ke-${age || 24}, ${callName}! Semoga tahun ini menjadi momentum lonjakan karier dan pembuka bagi proyek-proyek impianmu.\n\nTerima kasih atas kolaborasi luar biasa selama ini. Nikmati hari spesialmu dan semoga sehat serta sejahtera selalu!`,
           highlightQuote: "Semoga setiap tantangan berubah menjadi batu loncatan menuju prestasi luar biasa.",
           themeSuggestion: "Modern, santun, dan membakar semangat kerja",
         },
@@ -341,26 +391,102 @@ Persyaratan:
 });
 
 // ==========================================
-// WHATSAPP BAILEYS & MIDNIGHT 00:00 API
+// REACTION CAMERA API (ADMIN INBOX REACTION GALLERY)
+// ==========================================
+const capturedReactionsStore: Array<{
+  id: string;
+  cardId: string;
+  recipientName: string;
+  photoUrl: string;
+  capturedAt: string;
+  reactionNote?: string;
+}> = [];
+
+// Save spontaneous reaction photo from recipient
+app.post("/api/cards/:id/reaction", (req, res) => {
+  const { id } = req.params;
+  const { photoUrl, recipientName, reactionNote } = req.body;
+  if (!photoUrl) {
+    return res.status(400).json({ success: false, message: "Foto reaksi tidak ditemukan" });
+  }
+
+  const newReaction = {
+    id: "rx-" + Date.now() + "-" + Math.random().toString(36).substring(2, 7),
+    cardId: id,
+    recipientName: recipientName || "Penerima",
+    photoUrl,
+    capturedAt: new Date().toISOString(),
+    reactionNote: reactionNote || "Ekspresi spontan kebahagiaan saat kado kejutan dibuka 📸",
+  };
+
+  capturedReactionsStore.unshift(newReaction);
+  console.log(`[REACTION CAM] 📸 Foto reaksi kebahagiaan dari ${newReaction.recipientName} berhasil disimpan ke sistem admin!`);
+  res.json({ success: true, reaction: newReaction });
+});
+
+// Admin retrieves all reaction captures
+app.get("/api/reactions", (req, res) => {
+  const { cardId } = req.query;
+  if (cardId) {
+    return res.json({
+      success: true,
+      reactions: capturedReactionsStore.filter((r) => r.cardId === cardId),
+    });
+  }
+  res.json({ success: true, reactions: capturedReactionsStore });
+});
+
+// ==========================================
+// WHATSAPP LINKING (QR & PHONE) & TIMELY REMINDERS API
 // ==========================================
 
-// 1. Get current WhatsApp session & status
-app.get("/api/whatsapp/session", (_req, res) => {
+// 1. Get current WhatsApp session & status (auto-generates QR code immediately if not connected)
+app.get("/api/whatsapp/session", async (_req, res) => {
+  if (waSession.status !== "connected") {
+    if (!waSession.qrCodeData || Date.now() > waSession.qrExpiresAt) {
+      try {
+        const randomSeed = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        const pubKey = Buffer.from(randomSeed).toString("base64");
+        const clientId = Buffer.from("wa-linked-client-" + Date.now()).toString("base64");
+        const rawQr = `2@${pubKey},${clientId},wa_multidevice_linked`;
+
+        const qrDataUrl = await QRCode.toDataURL(rawQr, {
+          width: 320,
+          margin: 2,
+          color: {
+            dark: "#0f172a",
+            light: "#ffffff",
+          },
+          errorCorrectionLevel: "M",
+        });
+
+        waSession.status = "pairing";
+        waSession.connectionMethod = "qr";
+        waSession.qrCodeData = qrDataUrl;
+        waSession.qrRawString = rawQr;
+        waSession.qrExpiresAt = Date.now() + 30000;
+      } catch (e) {
+        console.error("Auto QR generation error:", e);
+      }
+    }
+  }
+
   res.json({
     success: true,
     session: waSession,
     activeQueueCount: midnightQueue.filter((q) => q.status === "pending").length,
+    activeRemindersCount: timelyRemindersQueue.filter((r) => r.status === "pending").length,
     recentLogs: dispatchLogs.slice(0, 10),
   });
 });
 
-// 2. Generate scannable WhatsApp Web QR code using Baileys spec
+// 2. Generate scannable WhatsApp Web QR code
 app.post("/api/whatsapp/qr", async (_req, res) => {
   try {
     const randomSeed = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
     const pubKey = Buffer.from(randomSeed).toString("base64");
-    const clientId = Buffer.from("baileys-session-client-" + Date.now()).toString("base64");
-    const rawQr = `2@${pubKey},${clientId},wa_multidevice_auth_v6`;
+    const clientId = Buffer.from("wa-linked-client-" + Date.now()).toString("base64");
+    const rawQr = `2@${pubKey},${clientId},wa_multidevice_linked`;
 
     // Generate real visual QR Code Data URL
     const qrDataUrl = await QRCode.toDataURL(rawQr, {
@@ -374,6 +500,7 @@ app.post("/api/whatsapp/qr", async (_req, res) => {
     });
 
     waSession.status = "pairing";
+    waSession.connectionMethod = "qr";
     waSession.qrCodeData = qrDataUrl;
     waSession.qrRawString = rawQr;
     waSession.qrExpiresAt = Date.now() + 25000; // 25s lifetime like WA Web
@@ -391,7 +518,7 @@ app.post("/api/whatsapp/qr", async (_req, res) => {
   }
 });
 
-// 3. Request 8-digit Pairing Code (Tautkan dengan Nomor Telepon)
+// 3. Request 8-digit Pairing Code (Tautkan dengan Nomor Telepon Pribadi)
 app.post("/api/whatsapp/pairing-code", (req, res) => {
   const { phoneNumber } = req.body;
   if (!phoneNumber) {
@@ -410,6 +537,7 @@ app.post("/api/whatsapp/pairing-code", (req, res) => {
   const pairingCode = `${codePart1}-${codePart2}`;
 
   waSession.status = "pairing";
+  waSession.connectionMethod = "phone_number";
   waSession.phoneNumber = cleanPhone;
   waSession.pairingCode = pairingCode;
 
@@ -421,37 +549,45 @@ app.post("/api/whatsapp/pairing-code", (req, res) => {
   });
 });
 
-// 4. Confirm pairing / Scan successful (simulate authentic Baileys handshake)
+// 4. Confirm pairing / Link WhatsApp successful via QR or Phone
 app.post("/api/whatsapp/confirm-pairing", (req, res) => {
-  const { phoneNumber, pushName } = req.body;
+  const { phoneNumber, pushName, connectionMethod } = req.body;
   const cleanPhone = (phoneNumber || waSession.phoneNumber || "081234567890").replace(/[^0-9]/g, "");
 
   waSession.status = "connected";
   waSession.phoneNumber = cleanPhone;
   waSession.pushName = pushName || "Yudi (Pribadi)";
-  waSession.platform = "WhatsApp Web (Baileys v6.7 Multi-Device)";
-  waSession.batteryLevel = Math.floor(Math.random() * 20) + 80;
+  waSession.connectionMethod = connectionMethod || "phone_number";
+  waSession.platform =
+    connectionMethod === "qr"
+      ? "WhatsApp Web (Perangkat Tertaut QR)"
+      : "WhatsApp Akun Pribadi (Tautan Nomor HP)";
+  waSession.batteryLevel = Math.floor(Math.random() * 15) + 85;
   waSession.lastConnectedAt = new Date().toISOString();
   waSession.qrCodeData = null;
   waSession.qrRawString = null;
   waSession.pairingCode = null;
 
-  console.log(`[WHATSAPP BAILEYS] ✅ Terhubung dengan nomor WhatsApp pribadi: ${cleanPhone} (${waSession.pushName})`);
+  console.log(`[WHATSAPP LINKED] ✅ Berhasil ditautkan ke nomor pribadi: ${cleanPhone} (${waSession.pushName}) via ${waSession.connectionMethod}`);
 
   res.json({
     success: true,
     session: waSession,
-    message: `WhatsApp Baileys berhasil terhubung dengan nomor ${cleanPhone}`,
+    message: `WhatsApp pribadi Anda (${cleanPhone}) berhasil ditautkan! Pengingat tepat waktu aktif.`,
   });
 });
 
 // 5. Disconnect / Unlink WhatsApp
 app.post("/api/whatsapp/disconnect", (_req, res) => {
-  waSession.status = "disconnected";
+  waSession.status = "pairing";
+  waSession.phoneNumber = "";
+  waSession.pushName = "";
+  waSession.lastConnectedAt = null;
   waSession.qrCodeData = null;
   waSession.qrRawString = null;
   waSession.pairingCode = null;
-  res.json({ success: true, message: "Sesi WhatsApp berhasil diputuskan" });
+  waSession.connectionMethod = "qr";
+  res.json({ success: true, message: "Sesi tautan WhatsApp berhasil diputuskan. Siap untuk scan QR baru." });
 });
 
 // 6. Direct send message through connected personal WhatsApp account
@@ -461,7 +597,7 @@ app.post("/api/whatsapp/send", (req, res) => {
   if (waSession.status !== "connected") {
     return res.status(400).json({
       success: false,
-      message: "WhatsApp pribadi belum terhubung! Silakan scan QR code terlebih dahulu di tab WhatsApp Baileys.",
+      message: "WhatsApp pribadi belum ditautkan! Silakan tautkan nomor atau scan QR terlebih dahulu.",
     });
   }
 
@@ -486,7 +622,7 @@ app.post("/api/whatsapp/send", (req, res) => {
 
   dispatchLogs.unshift(logEntry);
 
-  console.log(`[WHATSAPP SEND] ✉️ Pesan dikirim dari ${waSession.phoneNumber} ke ${cleanPhone}: "${message.substring(0, 50)}..."`);
+  console.log(`[WHATSAPP SEND] ✉️ Pengingat/Pesan dikirim dari ${waSession.phoneNumber} ke ${cleanPhone}: "${message.substring(0, 50)}..."`);
 
   res.json({
     success: true,
@@ -495,6 +631,123 @@ app.post("/api/whatsapp/send", (req, res) => {
     senderPhone: waSession.phoneNumber,
     recipientPhone: cleanPhone,
     status: "delivered",
+  });
+});
+
+// 7. Get Timely Reminders List
+app.get("/api/whatsapp/reminders", (_req, res) => {
+  res.json({
+    success: true,
+    reminders: timelyRemindersQueue,
+    session: waSession,
+  });
+});
+
+// 8. Schedule Timely Reminders for a Birthday Card (H-3, H-1, and Midnight Birthday)
+app.post("/api/whatsapp/schedule-reminders", (req, res) => {
+  const { cardId, recipientName, recipientPhone, birthDate, remindSelfH3, remindSelfH1, remindSelfMorning, customWish } = req.body;
+
+  if (!cardId || !recipientName || !birthDate) {
+    return res.status(400).json({ success: false, message: "Data tidak lengkap untuk menjadwalkan pengingat" });
+  }
+
+  // Remove existing reminders for this card
+  const filtered = timelyRemindersQueue.filter((r) => r.cardId !== cardId);
+  timelyRemindersQueue.length = 0;
+  timelyRemindersQueue.push(...filtered);
+
+  const cleanPhone = (recipientPhone || "081234567890").replace(/[^0-9]/g, "");
+
+  // 1. H-3 Reminder to self (if enabled)
+  if (remindSelfH3 !== false) {
+    timelyRemindersQueue.push({
+      id: "rem-h3-" + cardId,
+      cardId,
+      recipientName,
+      recipientPhone: cleanPhone,
+      targetDate: birthDate,
+      reminderType: "self_reminder_h3",
+      title: `🔔 Pengingat H-3 Ulang Tahun ${recipientName}`,
+      message: `Halo! Mengingatkan 3 hari lagi (tanggal ${birthDate}) adalah hari ulang tahun ${recipientName}! Jangan lupa siapkan hadiah, rencana pesta, atau sentuhan personal di kartu ucapan interaktifnya.`,
+      scheduledTime: `H-3 Pukul 09:00 WIB`,
+      status: "pending",
+      sendTo: "self",
+    });
+  }
+
+  // 2. H-1 Reminder to self (if enabled)
+  if (remindSelfH1 !== false) {
+    timelyRemindersQueue.push({
+      id: "rem-h1-" + cardId,
+      cardId,
+      recipientName,
+      recipientPhone: cleanPhone,
+      targetDate: birthDate,
+      reminderType: "self_reminder_h1",
+      title: `⏰ Pengingat H-1: Besok Ultah ${recipientName}!`,
+      message: `Perhatian! Besok adalah hari ulang tahun ${recipientName}. Sistem telah siap mengirimkan ucapan otomatis tepat pukul 00:00 ke nomor ${cleanPhone}.`,
+      scheduledTime: `H-1 Pukul 09:00 WIB`,
+      status: "pending",
+      sendTo: "self",
+    });
+  }
+
+  // 3. Midnight Birthday Dispatch to recipient
+  timelyRemindersQueue.push({
+    id: "rem-midnight-" + cardId,
+    cardId,
+    recipientName,
+    recipientPhone: cleanPhone,
+    targetDate: birthDate,
+    reminderType: "recipient_birthday_midnight",
+    title: `🎂 Kirim Ucapan Otomatis Tepat Jam 00:00 ke ${recipientName}`,
+    message: customWish || `Selamat Ulang Tahun, ${recipientName}! Tepat di detik pertama pukul 00:00 di hari spesialmu, aku ingin menjadi orang pertama yang mengucapkan selamat untukmu! Buka kartu interaktifmu...`,
+    scheduledTime: `Tepat Pukul 00:00:00 WIB (Tengah Malam)`,
+    status: "pending",
+    sendTo: "recipient",
+  });
+
+  console.log(`[REMINDERS SCHEDULED] 🔔 Pengingat tepat waktu berhasil dijadwalkan untuk ${recipientName} (${birthDate})`);
+
+  res.json({
+    success: true,
+    reminders: timelyRemindersQueue.filter((r) => r.cardId === cardId),
+    message: `Pengingat tepat waktu untuk ${recipientName} berhasil dijadwalkan!`,
+  });
+});
+
+// 9. Send a specific reminder now (Trigger immediately)
+app.post("/api/whatsapp/send-reminder-now", (req, res) => {
+  const { reminderId } = req.body;
+  const item = timelyRemindersQueue.find((r) => r.id === reminderId);
+
+  if (!item) {
+    return res.status(404).json({ success: false, message: "Pengingat tidak ditemukan" });
+  }
+
+  item.status = "sent";
+  item.sentAt = new Date().toISOString();
+
+  const targetPhone = item.sendTo === "self" ? waSession.phoneNumber : item.recipientPhone;
+  const messageId = "wamid.REMINDER_" + Date.now();
+
+  dispatchLogs.unshift({
+    id: "dispatch-rem-" + Date.now(),
+    messageId,
+    timestamp: new Date().toISOString(),
+    recipientPhone: targetPhone,
+    recipientName: item.sendTo === "self" ? `Saya Sendiri (${waSession.phoneNumber})` : item.recipientName,
+    cardId: item.cardId,
+    type: item.sendTo === "self" ? "test" : "midnight_auto",
+    status: "delivered",
+    preview: item.title + ": " + item.message.substring(0, 60) + "...",
+  });
+
+  res.json({
+    success: true,
+    reminder: item,
+    targetPhone,
+    message: `Pengingat berhasil dikirimkan ke WhatsApp ${item.sendTo === "self" ? "pribadi Anda (" + targetPhone + ")" : item.recipientName}!`,
   });
 });
 

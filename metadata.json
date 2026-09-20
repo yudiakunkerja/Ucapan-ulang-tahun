@@ -1,6 +1,6 @@
 {
   "name": "Ucapan Ulang Tahun Otomatis & Personal",
   "description": "Aplikasi pembuatan dan penjadwalan ucapan selamat ulang tahun interaktif dengan tema personal (Pasangan, Teman, Keluarga, Rekan Kerja), generator pesan AI Gemini, animasi kejutan foto kenangan, musik latar, dan kartu unik WhatsApp.",
-  "requestFramePermissions": ["microphone"],
+  "requestFramePermissions": ["microphone", "camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

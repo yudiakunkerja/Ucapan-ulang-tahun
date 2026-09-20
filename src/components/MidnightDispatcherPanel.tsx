@@ -154,7 +154,7 @@ export const MidnightDispatcherPanel: React.FC<MidnightDispatcherPanelProps> = (
               Kirim Link Tepat di Pukul 00.00 Hari Ulang Tahun
             </h3>
             <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed">
-              Jadilah orang pertama yang mengucapkan selamat ulang tahun! Sistem otomatis Baileys akan mengirimkan link kartu interaktif dan ucapan personal ke WhatsApp penerima tepat saat jarum jam menyentuh pukul 00:00 di tanggal kelahirannya.
+              Jadilah orang pertama yang mengucapkan selamat ulang tahun! Sistem otomatis WhatsApp pribadi Anda akan mengirimkan link kartu interaktif dan ucapan personal ke WhatsApp penerima tepat saat jarum jam menyentuh pukul 00:00 di tanggal kelahirannya.
             </p>
           </div>
 

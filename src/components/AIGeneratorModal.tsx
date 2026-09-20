@@ -11,6 +11,7 @@ interface AIGeneratorModalProps {
   initialNickname: string;
   initialProfile: RecipientProfile;
   initialSenderName: string;
+  initialAge?: number;
 }
 
 export const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({
@@ -21,13 +22,14 @@ export const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({
   initialNickname,
   initialProfile,
   initialSenderName,
+  initialAge,
 }) => {
   const [recipientName, setRecipientName] = useState(initialRecipientName || '');
   const [nickname, setNickname] = useState(initialNickname || '');
   const [profile, setProfile] = useState<RecipientProfile>(initialProfile || 'teman');
   const [tone, setTone] = useState<WishTone>('sentimental');
   const [notes, setNotes] = useState('');
-  const [age, setAge] = useState('');
+  const [age, setAge] = useState(initialAge ? String(initialAge) : '24');
   const [senderName, setSenderName] = useState(initialSenderName || '');
   const [isLoading, setIsLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);

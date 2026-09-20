@@ -27,6 +27,14 @@ export interface RecipientResponse {
   emoji: string;
 }
 
+export interface ReactionCapture {
+  id: string;
+  photoUrl: string; // Data URL of the spontaneous reaction photo
+  capturedAt: string;
+  recipientName: string;
+  reactionNote?: string;
+}
+
 export type EWalletProvider = 'dana' | 'gopay' | 'shopeepay' | 'ovo';
 
 export interface GiftReward {
@@ -63,13 +71,33 @@ export interface GreetingCard {
   status: 'draft' | 'scheduled' | 'sent' | 'opened';
   createdAt: string;
   responses: RecipientResponse[];
+  turningAge?: number;
+  reactions?: ReactionCapture[];
   giftReward?: GiftReward; // Fitur Hadiah / Kado E-Wallet Terverifikasi
-  // Pengiriman Otomatis Tepat Pukul 00:00 (Midnight Surprise)
+  // Pengiriman Otomatis & Pengingat Tepat Waktu via WhatsApp Pribadi
   midnightSendEnabled?: boolean;
   midnightSendStatus?: 'pending' | 'sent' | 'failed' | 'disabled';
   midnightSentAt?: string;
   midnightTimezone?: 'WIB' | 'WITA' | 'WIT' | 'LOCAL';
   midnightCustomMessage?: string;
+  remindSelfH3?: boolean;
+  remindSelfH1?: boolean;
+  remindSelfMorning?: boolean;
+}
+
+export interface WhatsAppReminderItem {
+  id: string;
+  cardId: string;
+  recipientName: string;
+  recipientPhone: string;
+  targetDate: string;
+  reminderType: 'self_reminder_h3' | 'self_reminder_h1' | 'self_reminder_today' | 'recipient_birthday_midnight' | 'recipient_birthday_morning';
+  title: string;
+  message: string;
+  scheduledTime: string;
+  status: 'pending' | 'sent' | 'failed';
+  sendTo: 'self' | 'recipient';
+  sentAt?: string;
 }
 
 export interface WhatsAppSessionState {
@@ -82,6 +110,7 @@ export interface WhatsAppSessionState {
   qrCodeData?: string;
   qrExpiresAt?: number;
   pairingCode?: string;
+  connectionMethod?: 'qr' | 'phone_number';
 }
 
 export interface MidnightQueueItem {

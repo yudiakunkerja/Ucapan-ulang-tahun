@@ -25,6 +25,9 @@ import {
   PartyPopper,
   MessageCircle,
   Flame,
+  Camera,
+  Sliders,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface RecipientCardViewProps {
@@ -41,6 +44,19 @@ export const RecipientCardView: React.FC<RecipientCardViewProps> = ({
   const theme = THEMES[card.profile] || THEMES.teman;
   const musicPreset = MUSIC_PRESETS[card.musicPreset] || MUSIC_PRESETS.birthday_musicbox;
 
+  // Calculate age from birth date or card.turningAge
+  const calculateAge = (birthDateStr?: string, defaultAge?: number): number => {
+    if (defaultAge && defaultAge > 0) return defaultAge;
+    if (!birthDateStr) return 24;
+    const parts = birthDateStr.split('-');
+    if (parts.length < 3) return 24;
+    const birthYear = parseInt(parts[0], 10);
+    if (isNaN(birthYear)) return 24;
+    const currentYear = new Date().getFullYear();
+    return Math.max(1, currentYear - birthYear);
+  };
+  const recipientAge = calculateAge(card.birthDate, card.turningAge);
+
   // Surprise phases: 'sealed' -> 'opened'
   const [isOpened, setIsOpened] = useState(false);
   const [isPlayingMusic, setIsPlayingMusic] = useState(false);
@@ -49,15 +65,113 @@ export const RecipientCardView: React.FC<RecipientCardViewProps> = ({
   const [cakeBlown, setCakeBlown] = useState(false);
   const [showFireworks, setShowFireworks] = useState(false);
 
+  // Auto-Volume (60%) & Front Camera Reaction Capture setup
+  const [showPermissionModal, setShowPermissionModal] = useState(true);
+  const [cameraPermissionGranted, setCameraPermissionGranted] = useState(false);
+  const [volumeCalibrated, setVolumeCalibrated] = useState(false);
+  const [isCapturingFlash, setIsCapturingFlash] = useState(false);
+  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [showReactionNotice, setShowReactionNotice] = useState(false);
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  // Clean up camera stream on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+    };
+  }, []);
+
+  // Recipient grants permission to calibrate volume to 60% & turn on front camera
+  const handleAcceptPermissions = async () => {
+    // 1. Calibrate volume automatically to 60%
+    birthdayAudio.setVolume(0.6);
+    setVolumeCalibrated(true);
+
+    // 2. Request front camera permission
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false,
+        });
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(() => {});
+        }
+        setCameraPermissionGranted(true);
+      }
+    } catch (err) {
+      console.warn('Izin kamera ditolak atau tidak tersedia:', err);
+    }
+
+    setShowPermissionModal(false);
+  };
+
+  // Recipient skips permissions
+  const handleSkipPermissions = () => {
+    birthdayAudio.setVolume(0.6);
+    setVolumeCalibrated(true);
+    setShowPermissionModal(false);
+  };
+
   // Response form
   const [replyText, setReplyText] = useState('');
   const [replyEmoji, setReplyEmoji] = useState('❤️');
   const [replySubmitted, setReplySubmitted] = useState(false);
 
-  // Start background music and fireworks on open
+  // Start background music, take spontaneous reaction photo, and launch fireworks on open
   const handleOpenSurprise = () => {
+    // Shutter flash effect
+    setIsCapturingFlash(true);
+    setTimeout(() => setIsCapturingFlash(false), 500);
+
+    // Spontaneously capture face with front camera
+    if (videoRef.current && streamRef.current) {
+      try {
+        const video = videoRef.current;
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          // Mirror camera image for natural selfie
+          ctx.translate(canvas.width, 0);
+          ctx.scale(-1, 1);
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const photoUrl = canvas.toDataURL('image/jpeg', 0.85);
+          setCapturedPhoto(photoUrl);
+          setShowReactionNotice(true);
+
+          // Save photo to admin system
+          fetch(`/api/cards/${card.id}/reaction`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              photoUrl,
+              recipientName: card.nickname || card.recipientName,
+              reactionNote: `Momen spontan saat ${card.nickname || card.recipientName} membuka kado ulang tahun ke-${recipientAge} 🎉`,
+            }),
+          }).catch((err) => console.log('Simpan reaksi:', err));
+        }
+
+        // Stop video stream after capture to preserve battery and privacy
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      } catch (err) {
+        console.warn('Gagal memotret reaksi spontan:', err);
+      }
+    }
+
     setIsOpened(true);
     setShowFireworks(true);
+    // Ensure volume is at 60%
+    birthdayAudio.setVolume(0.6);
     birthdayAudio.playConfettiPop();
     birthdayAudio.playBackgroundMusic(activePreset);
     setIsPlayingMusic(true);
@@ -325,10 +439,43 @@ export const RecipientCardView: React.FC<RecipientCardViewProps> = ({
               transition={{ duration: 0.6, type: 'spring', damping: 20 }}
               className="w-full space-y-8"
             >
-              {/* SECTION 1: INTERACTIVE CAKE & CANDLE */}
+              {/* SECTION 1: SPONTANEOUS REACTION CAM SNAPSHOT & INTERACTIVE CAKE & CANDLE */}
+              {capturedPhoto && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="w-full p-4 rounded-3xl bg-gradient-to-r from-rose-500/10 via-amber-500/10 to-indigo-500/10 border border-rose-300 dark:border-rose-800 shadow-xl flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left backdrop-blur-md"
+                >
+                  <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden border-2 border-amber-400 shadow-lg shrink-0">
+                    <img
+                      src={capturedPhoto}
+                      alt="Raut Bahagia Penerima"
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute bottom-1 right-1 bg-black/70 text-amber-300 rounded px-1.5 py-0.5 text-[9px] font-bold flex items-center gap-1">
+                      <Camera className="w-2.5 h-2.5" />
+                      <span>Reaksi</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-700 dark:text-rose-300 font-bold text-[11px] mb-1">
+                      <Sparkles className="w-3 h-3 text-amber-500" />
+                      <span>Foto Senyum Bahagiamu Berhasil Diabadikan!</span>
+                    </div>
+                    <h4 className="text-sm font-extrabold text-zinc-900 dark:text-white">
+                      Momen Kebahagiaan Ulang Tahun Ke-{recipientAge}
+                    </h4>
+                    <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-0.5">
+                      Foto reaksi spontan ini telah tersimpan otomatis ke sistem {card.senderName} agar dapat melihat senyum bahagiamu mendapatkan kado ini.
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+
               <div className="w-full bg-white/75 dark:bg-zinc-900/75 backdrop-blur-xl rounded-3xl border border-white/60 dark:border-zinc-800 shadow-2xl overflow-hidden p-6 sm:p-8">
                 <InteractiveCake
                   recipientName={card.nickname || card.recipientName}
+                  age={recipientAge}
                   themeColor={theme.colors.primary}
                   onBlownOut={() => {
                     setCakeBlown(true);
@@ -529,6 +676,105 @@ export const RecipientCardView: React.FC<RecipientCardViewProps> = ({
           intensity={cakeBlown ? 'high' : 'medium'}
         />
       )}
+
+      {/* HIDDEN VIDEO FOR REACTION CAMERA CAPTURE */}
+      <video
+        ref={videoRef}
+        playsInline
+        autoPlay
+        muted
+        className="hidden pointer-events-none"
+        aria-hidden="true"
+      />
+
+      {/* SHUTTER FLASH OVERLAY */}
+      {isCapturingFlash && (
+        <motion.div
+          initial={{ opacity: 0.9 }}
+          animate={{ opacity: 0 }}
+          transition={{ duration: 0.5 }}
+          className="fixed inset-0 bg-white z-[100] pointer-events-none"
+        />
+      )}
+
+      {/* PRE-OPEN PERMISSION & VOLUME CALIBRATION MODAL */}
+      <AnimatePresence>
+        {showPermissionModal && !isOpened && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="w-full max-w-md bg-white dark:bg-zinc-900 rounded-3xl p-6 sm:p-7 shadow-2xl border border-rose-200/80 dark:border-zinc-800 text-center relative overflow-hidden"
+            >
+              {/* Top festive badge */}
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-tr from-rose-500 to-amber-400 text-white flex items-center justify-center shadow-lg shadow-rose-500/30 mb-4">
+                <Gift className="w-7 h-7 animate-pulse" />
+              </div>
+
+              <h3 className="text-xl sm:text-2xl font-extrabold text-zinc-900 dark:text-white font-serif">
+                Persiapan Kado Kejutan ✨
+              </h3>
+              <p className="text-xs sm:text-sm text-zinc-600 dark:text-zinc-300 mt-1.5 mb-5 leading-relaxed">
+                Hai <b>{card.nickname || card.recipientName}</b>! Ada kado ulang tahun spesial dari <b>{card.senderName}</b>.
+                Agar momen kejutan ini maksimal, sistem memerlukan izin berikut:
+              </p>
+
+              <div className="space-y-3 text-left mb-6">
+                {/* Volume Permission info */}
+                <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-900/50 flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+                    <Volume2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-amber-950 dark:text-amber-200">
+                      Kalibrasi Volume Musik Otomatis (~60%)
+                    </h4>
+                    <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-0.5 leading-normal">
+                      Volume suara lagu disesuaikan ke level ideal 60% agar pas, merdu, dan tidak mengagetkan di speaker ponselmu.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Camera Reaction info */}
+                <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200/70 dark:border-rose-900/50 flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-rose-500 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+                    <Camera className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-rose-950 dark:text-rose-200">
+                      Kamera Reaksi Kebahagiaan (Reaction Cam)
+                    </h4>
+                    <p className="text-[11px] text-rose-800 dark:text-rose-300 mt-0.5 leading-normal">
+                      Kamera depan diaktifkan untuk mengabadikan senyum spontanmu tepat saat membuka kado, dan tersimpan otomatis agar {card.senderName} bisa melihat kebahagiaanmu.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Buttons */}
+              <div className="space-y-2">
+                <button
+                  id="btn-izinkan-volume-kamera"
+                  onClick={handleAcceptPermissions}
+                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-rose-600 to-amber-500 hover:from-rose-500 hover:to-amber-400 text-white font-bold text-sm shadow-lg shadow-rose-600/30 flex items-center justify-center gap-2 cursor-pointer transition-transform active:scale-98"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Izinkan & Buka Kado Kejutan 🎁</span>
+                </button>
+
+                <button
+                  id="btn-lewati-izin"
+                  onClick={handleSkipPermissions}
+                  className="w-full py-2 px-4 rounded-xl text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 text-xs font-medium cursor-pointer"
+                >
+                  Buka Kado Tanpa Kamera Depan
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

@@ -44,6 +44,7 @@ import {
   MessageCircle,
   Wallet,
   ShieldCheck,
+  RefreshCw,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -68,7 +69,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [recipientName, setRecipientName] = useState('');
   const [nickname, setNickname] = useState('');
   const [profile, setProfile] = useState<RecipientProfile>('pasangan');
-  const [birthDate, setBirthDate] = useState('2026-09-20');
+  const [birthDate, setBirthDate] = useState('2002-09-20');
+  const [turningAge, setTurningAge] = useState<number>(24);
   const [scheduledDeliveryDate, setScheduledDeliveryDate] = useState('2026-09-20T00:00');
   const [autoScheduleEnabled, setAutoScheduleEnabled] = useState(true);
   const [whatsappNumber, setWhatsappNumber] = useState('6281234567890');
@@ -76,7 +78,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [senderWhatsApp, setSenderWhatsApp] = useState('6281234567890');
   const [cardTitle, setCardTitle] = useState('Selamat Ulang Tahun Jiwa Terindahku ❤️');
   const [message, setMessage] = useState(
-    'Selamat ulang tahun untuk sosok yang selalu membuat hariku lebih berwarna. Semoga di usia yang baru ini, setiap impianmu terwujud indah dan kebahagiaan selalu menyertaimu.'
+    'Selamat ulang tahun untuk sosok yang selalu membuat hariku lebih berwarna. Semoga di usia yang ke-24 ini, setiap impianmu terwujud indah dan kebahagiaan selalu menyertaimu.'
   );
   const [highlightQuote, setHighlightQuote] = useState(
     'Bersamamu, setiap detik adalah kado terindah yang kusyukuri.'
@@ -84,6 +86,52 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [musicPreset, setMusicPreset] = useState<MusicPresetId>('kids_happy_birthday');
   const [surpriseType, setSurpriseType] = useState<SurpriseType>('gift_box');
   const [photos, setPhotos] = useState<MemoryPhoto[]>(THEMES.pasangan.samplePhotos);
+
+  const [capturedReactions, setCapturedReactions] = useState<Array<{
+    id: string;
+    cardId: string;
+    recipientName: string;
+    photoUrl: string;
+    reactionNote?: string;
+    capturedAt: string;
+  }>>([]);
+  const [isLoadingReactions, setIsLoadingReactions] = useState(false);
+
+  // Fetch reactions when viewing inbox
+  const fetchCapturedReactions = async () => {
+    setIsLoadingReactions(true);
+    try {
+      const res = await fetch('/api/reactions');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.reactions)) {
+        setCapturedReactions(data.reactions);
+      }
+    } catch (err) {
+      console.warn('Gagal memuat data reaksi:', err);
+    } finally {
+      setIsLoadingReactions(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'inbox') {
+      fetchCapturedReactions();
+    }
+  }, [activeTab]);
+
+  const handleBirthDateChange = (newDate: string) => {
+    setBirthDate(newDate);
+    if (newDate) {
+      const parts = newDate.split('-');
+      if (parts.length >= 1) {
+        const birthYear = parseInt(parts[0], 10);
+        if (!isNaN(birthYear) && birthYear > 1900) {
+          const calculated = Math.max(1, new Date().getFullYear() - birthYear);
+          setTurningAge(calculated);
+        }
+      }
+    }
+  };
 
   // Gift / Kado E-Wallet state
   const [giftEnabled, setGiftEnabled] = useState(true);
@@ -123,6 +171,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setNickname(card.nickname);
     setProfile(card.profile);
     setBirthDate(card.birthDate);
+    const calculatedAge = card.turningAge || (card.birthDate ? Math.max(1, new Date().getFullYear() - parseInt(card.birthDate.split('-')[0], 10)) : 24);
+    setTurningAge(calculatedAge);
     setScheduledDeliveryDate(card.scheduledDeliveryDate);
     setAutoScheduleEnabled(card.autoScheduleEnabled);
     setWhatsappNumber(card.whatsappNumber);
@@ -160,6 +210,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setNickname('');
     setProfile('teman');
     setBirthDate(new Date().toISOString().split('T')[0]);
+    setTurningAge(24);
     setScheduledDeliveryDate(`${new Date().toISOString().split('T')[0]}T00:00`);
     setAutoScheduleEnabled(true);
     setWhatsappNumber('');
@@ -303,6 +354,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       profile,
       relationshipDetail: THEMES[profile].tagline,
       birthDate,
+      turningAge: turningAge || 24,
       scheduledDeliveryDate,
       autoScheduleEnabled,
       whatsappNumber: whatsappNumber.trim(),
@@ -530,7 +582,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </button>
 
         <button
-          id="tab-whatsapp-baileys"
+          id="tab-whatsapp-link"
           onClick={() => setActiveTab('whatsapp')}
           className={`relative pb-3 px-3 sm:px-4 text-xs sm:text-sm font-semibold transition-colors cursor-pointer flex items-center gap-2 shrink-0 whitespace-nowrap ${
             activeTab === 'whatsapp'
@@ -539,7 +591,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           }`}
         >
           <MessageCircle className="w-4 h-4 text-emerald-500" />
-          <span>WhatsApp Baileys & Jam 00:00</span>
+          <span>Penautan WhatsApp & Pengingat</span>
           {activeTab === 'whatsapp' && (
             <motion.div
               layoutId="activeTabIndicator"
@@ -687,15 +739,36 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                  Tanggal Ulang Tahun
+                  Tanggal Lahir Penerima
                 </label>
                 <input
                   id="input-tanggal-ulang-tahun"
                   type="date"
                   value={birthDate}
-                  onChange={(e) => setBirthDate(e.target.value)}
+                  onChange={(e) => handleBirthDateChange(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl text-sm bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500/50"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1 flex items-center justify-between">
+                  <span>Ulang Tahun ke- (Lilin Kue)</span>
+                  <span className="text-[10px] text-rose-500 font-bold">Lilin 3D Otomatis</span>
+                </label>
+                <div className="relative">
+                  <input
+                    id="input-umur-lilin"
+                    type="number"
+                    min="1"
+                    max="120"
+                    value={turningAge}
+                    onChange={(e) => setTurningAge(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    className="w-full px-3.5 py-2.5 rounded-xl text-sm font-bold bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500/50"
+                  />
+                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs text-zinc-400 font-semibold pointer-events-none">
+                    Tahun
+                  </span>
+                </div>
               </div>
 
               <div>
@@ -1533,92 +1606,189 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </motion.div>
       )}
 
-      {/* TAB CONTENT: INBOX BALASAN & DOA */}
+      {/* TAB CONTENT: INBOX BALASAN & REAKSI WAJAH SPONTAN */}
       {activeTab === 'inbox' && (
         <motion.div
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
-          className="space-y-4"
+          className="space-y-8"
         >
-          <div className="mb-4">
-            <h2 className="text-xl font-bold text-zinc-900 dark:text-white">
-              Kotak Balasan & Doa dari Penerima
-            </h2>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Pesan balasan haru dan terima kasih yang dikirimkan oleh orang-orang yang telah membuka
-              kartu ucapan Anda.
-            </p>
-          </div>
+          {/* SECTION 1: GALERI REAKSI WAJAH SPONTAN (REACTION CAM) */}
+          <div className="p-6 rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+              <div>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-xs font-bold mb-1">
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Kamera Reaksi Spontan (Reaction Cam)</span>
+                </div>
+                <h2 className="text-xl font-bold text-zinc-900 dark:text-white">
+                  Galeri Raut Muka & Senyum Bahagia Penerima
+                </h2>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                  Foto spontan yang tertangkap oleh kamera depan saat penerima pertama kali membuka kado kejutan mereka.
+                </p>
+              </div>
 
-          {totalResponses === 0 ? (
-            <div className="text-center py-16 px-4 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800">
-              <MessageSquare className="w-12 h-12 mx-auto text-zinc-400 mb-3" />
-              <h3 className="text-base font-bold text-zinc-700 dark:text-zinc-300">
-                Belum Ada Balasan Masuk
-              </h3>
-              <p className="text-xs text-zinc-500 mt-1 max-w-sm mx-auto">
-                Ketika penerima membuka link kartu ucapan mereka dan menuliskan doa balasan, pesan
-                mereka akan muncul di sini.
-              </p>
+              <button
+                onClick={fetchCapturedReactions}
+                disabled={isLoadingReactions}
+                className="px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs font-semibold text-zinc-700 dark:text-zinc-200 flex items-center gap-2 self-start sm:self-auto cursor-pointer"
+                title="Muat ulang foto reaksi"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingReactions ? 'animate-spin' : ''}`} />
+                <span>Segarkan Foto</span>
+              </button>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {cards.flatMap((c) =>
-                (c.responses || []).map((resp) => (
+
+            {capturedReactions.length === 0 ? (
+              <div className="text-center py-10 px-4 bg-zinc-50 dark:bg-zinc-800/40 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-700">
+                <Camera className="w-10 h-10 mx-auto text-zinc-400 mb-2" />
+                <h3 className="text-sm font-bold text-zinc-700 dark:text-zinc-300">
+                  Belum Ada Foto Reaksi yang Tersimpan
+                </h3>
+                <p className="text-xs text-zinc-500 mt-1 max-w-md mx-auto">
+                  Ketika penerima membuka link kado dan mengizinkan kamera depan, foto senyum spontan mereka saat kado terbuka akan terkirim dan disimpan di sini secara otomatis.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {capturedReactions.map((reaction) => (
                   <div
-                    key={resp.id}
-                    className="p-5 rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-sm relative overflow-hidden flex flex-col justify-between"
+                    key={reaction.id}
+                    className="p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 shadow-sm flex flex-col justify-between overflow-hidden"
                   >
                     <div>
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-2xl">{resp.emoji}</span>
-                          <div>
-                            <h4 className="text-sm font-bold text-zinc-900 dark:text-white">
-                              {resp.sender}
-                            </h4>
-                            <span className="text-[10px] text-zinc-400">
-                              Untuk kartu: {c.recipientName}
-                            </span>
-                          </div>
+                      <div className="relative aspect-video rounded-xl overflow-hidden bg-black/10 mb-3 border border-zinc-200 dark:border-zinc-700">
+                        <img
+                          src={reaction.photoUrl}
+                          alt={`Reaksi dari ${reaction.recipientName}`}
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-black/60 text-white text-[10px] font-mono backdrop-blur-sm">
+                          {new Date(reaction.capturedAt).toLocaleTimeString('id-ID', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
                         </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2">
+                        <h4 className="text-sm font-bold text-zinc-900 dark:text-white truncate">
+                          {reaction.recipientName}
+                        </h4>
                         <span className="text-[10px] text-zinc-400 font-mono">
-                          {resp.timestamp}
+                          {new Date(reaction.capturedAt).toLocaleDateString('id-ID', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })}
                         </span>
                       </div>
 
-                      <p className="text-xs text-zinc-700 dark:text-zinc-200 italic font-serif leading-relaxed mt-2 bg-zinc-50 dark:bg-zinc-800/60 p-3 rounded-2xl">
-                        "{resp.text}"
-                      </p>
-                    </div>
-
-                    <div className="mt-4 pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between text-xs">
-                      <button
-                        onClick={() => onPreviewCard(c)}
-                        className="text-rose-600 dark:text-rose-400 font-semibold hover:underline flex items-center gap-1 cursor-pointer"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Lihat Kartu Terkait</span>
-                      </button>
-
-                      {c.whatsappNumber && (
-                        <a
-                          href={`https://wa.me/${c.whatsappNumber.replace(/[^0-9]/g, '')}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-emerald-600 dark:text-emerald-400 font-semibold hover:underline flex items-center gap-1"
-                        >
-                          <MessageCircle className="w-3.5 h-3.5" />
-                          <span>Chat di WhatsApp</span>
-                        </a>
+                      {reaction.reactionNote && (
+                        <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-1 italic leading-relaxed">
+                          "{reaction.reactionNote}"
+                        </p>
                       )}
                     </div>
+
+                    <div className="mt-4 pt-2 border-t border-zinc-200 dark:border-zinc-700 flex items-center justify-between text-xs">
+                      <a
+                        href={reaction.photoUrl}
+                        download={`reaksi-${reaction.recipientName}.jpg`}
+                        className="text-rose-600 dark:text-rose-400 font-semibold hover:underline flex items-center gap-1"
+                      >
+                        <span>Unduh Foto</span>
+                      </a>
+                    </div>
                   </div>
-                ))
-              )}
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* SECTION 2: KOTAK BALASAN & DOA DARI PENERIMA */}
+          <div>
+            <div className="mb-4">
+              <h2 className="text-xl font-bold text-zinc-900 dark:text-white">
+                Kotak Balasan & Doa dari Penerima
+              </h2>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Pesan balasan haru dan terima kasih yang dikirimkan oleh orang-orang yang telah membuka
+                kartu ucapan Anda.
+              </p>
             </div>
-          )}
+
+            {totalResponses === 0 ? (
+              <div className="text-center py-16 px-4 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800">
+                <MessageSquare className="w-12 h-12 mx-auto text-zinc-400 mb-3" />
+                <h3 className="text-base font-bold text-zinc-700 dark:text-zinc-300">
+                  Belum Ada Balasan Masuk
+                </h3>
+                <p className="text-xs text-zinc-500 mt-1 max-w-sm mx-auto">
+                  Ketika penerima membuka link kartu ucapan mereka dan menuliskan doa balasan, pesan
+                  mereka akan muncul di sini.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {cards.flatMap((c) =>
+                  (c.responses || []).map((resp) => (
+                    <div
+                      key={resp.id}
+                      className="p-5 rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-sm relative overflow-hidden flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-2xl">{resp.emoji}</span>
+                            <div>
+                              <h4 className="text-sm font-bold text-zinc-900 dark:text-white">
+                                {resp.sender}
+                              </h4>
+                              <span className="text-[10px] text-zinc-400">
+                                Untuk kartu: {c.recipientName}
+                              </span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] text-zinc-400 font-mono">
+                            {resp.timestamp}
+                          </span>
+                        </div>
+
+                        <p className="text-xs text-zinc-700 dark:text-zinc-200 italic font-serif leading-relaxed mt-2 bg-zinc-50 dark:bg-zinc-800/60 p-3 rounded-2xl">
+                          "{resp.text}"
+                        </p>
+                      </div>
+
+                      <div className="mt-4 pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between text-xs">
+                        <button
+                          onClick={() => onPreviewCard(c)}
+                          className="text-rose-600 dark:text-rose-400 font-semibold hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Lihat Kartu Terkait</span>
+                        </button>
+
+                        {c.whatsappNumber && (
+                          <a
+                            href={`https://wa.me/${c.whatsappNumber.replace(/[^0-9]/g, '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-emerald-600 dark:text-emerald-400 font-semibold hover:underline flex items-center gap-1"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            <span>Chat di WhatsApp</span>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
         </motion.div>
       )}
 
@@ -1661,6 +1831,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         initialNickname={nickname}
         initialProfile={profile}
         initialSenderName={senderName}
+        initialAge={turningAge}
       />
     </div>
   );

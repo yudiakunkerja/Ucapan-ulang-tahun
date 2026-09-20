@@ -13,6 +13,7 @@ interface InteractiveCakeProps {
 
 export const InteractiveCake: React.FC<InteractiveCakeProps> = ({
   recipientName,
+  age = 24,
   themeColor = '#e11d48',
   onBlownOut,
 }) => {
@@ -25,6 +26,10 @@ export const InteractiveCake: React.FC<InteractiveCakeProps> = ({
   const streamRef = useRef<MediaStream | null>(null);
   const lastShakeTimeRef = useRef<number>(0);
   const lastAccRef = useRef<{ x: number; y: number; z: number }>({ x: 0, y: 0, z: 0 });
+
+  // Calculate digits for number candle
+  const displayAge = age && age > 0 ? age : 24;
+  const candleDigits = String(displayAge).split('');
 
   // Trigger celebratory confetti explosion
   const triggerConfetti = () => {
@@ -236,66 +241,71 @@ export const InteractiveCake: React.FC<InteractiveCakeProps> = ({
           className="cursor-pointer group relative flex flex-col items-center py-6 transition-transform duration-300 hover:scale-105 select-none transform scale-[0.88] sm:scale-100 origin-center"
           title="Klik untuk meniup lilin!"
         >
-          {/* CANDLES ROW */}
-          <div className="flex items-end justify-center gap-5 mb-1 z-10">
-            {[0, 1, 2].map((idx) => (
-              <div key={idx} className="relative flex flex-col items-center">
-                {/* FLAME */}
-                <AnimatePresence>
-                  {!isBlown ? (
-                    <motion.div
-                      className="relative mb-1"
-                      animate={{
-                        scale: [1, 1.15, 0.95, 1],
-                        rotate: [-2, 3, -3, 2],
-                      }}
-                      transition={{
-                        duration: 0.7 + idx * 0.15,
-                        repeat: Infinity,
-                        ease: 'easeInOut',
-                      }}
-                    >
-                      {/* Outer Glow */}
-                      <div className="absolute -inset-2 bg-amber-400/50 rounded-full blur-md animate-pulse" />
-                      {/* Flame Shape */}
-                      <div className="relative w-4 h-7 rounded-full bg-gradient-to-t from-orange-500 via-amber-400 to-yellow-200 shadow-[0_0_12px_#f59e0b]" />
-                      {/* Blue Core */}
-                      <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-2 rounded-full bg-blue-400/80" />
-                    </motion.div>
-                  ) : (
-                    /* Smoke Whisp after blown */
-                    <motion.div
-                      key="smoke"
-                      initial={{ opacity: 0.8, y: 0, scaleX: 0.8 }}
-                      animate={{ opacity: 0, y: -25, scaleX: 2 }}
-                      transition={{ duration: 1.8, repeat: Infinity }}
-                      className="w-1.5 h-6 bg-gradient-to-t from-zinc-400 to-transparent rounded-full blur-[1px]"
-                    />
-                  )}
-                </AnimatePresence>
+          {/* CANDLES ROW: NUMBER CANDLES BASED ON AGE */}
+          <div className="flex flex-col items-center mb-1 z-20">
+            <div className="flex items-end justify-center gap-3 sm:gap-4">
+              {candleDigits.map((digit, idx) => (
+                <div key={idx} className="relative flex flex-col items-center">
+                  {/* FLAME */}
+                  <AnimatePresence>
+                    {!isBlown ? (
+                      <motion.div
+                        className="relative mb-1"
+                        animate={{
+                          scale: [1, 1.15, 0.95, 1],
+                          rotate: [-2, 3, -3, 2],
+                        }}
+                        transition={{
+                          duration: 0.65 + idx * 0.15,
+                          repeat: Infinity,
+                          ease: 'easeInOut',
+                        }}
+                      >
+                        {/* Outer Glow */}
+                        <div className="absolute -inset-2.5 bg-amber-400/60 rounded-full blur-md animate-pulse" />
+                        {/* Flame Shape */}
+                        <div className="relative w-4 h-7 rounded-full bg-gradient-to-t from-orange-500 via-amber-400 to-yellow-200 shadow-[0_0_14px_#f59e0b]" />
+                        {/* Blue Core */}
+                        <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-2 rounded-full bg-blue-400/90" />
+                      </motion.div>
+                    ) : (
+                      /* Smoke Whisp after blown */
+                      <motion.div
+                        key="smoke"
+                        initial={{ opacity: 0.85, y: 0, scaleX: 0.8 }}
+                        animate={{ opacity: 0, y: -30, scaleX: 2.2 }}
+                        transition={{ duration: 1.8, repeat: Infinity }}
+                        className="w-1.5 h-7 bg-gradient-to-t from-zinc-400 to-transparent rounded-full blur-[1px]"
+                      />
+                    )}
+                  </AnimatePresence>
 
-                {/* WICK */}
-                <div className="w-0.5 h-2 bg-zinc-800 dark:bg-zinc-200" />
+                  {/* WICK */}
+                  <div className="w-0.5 h-2.5 bg-zinc-800 dark:bg-zinc-200" />
 
-                {/* CANDLE BODY */}
-                <div
-                  className={`w-3.5 h-12 rounded-t-sm shadow-md border-t border-white/40 ${
-                    idx === 0
-                      ? 'bg-gradient-to-b from-rose-400 to-rose-600'
-                      : idx === 1
-                      ? 'bg-gradient-to-b from-amber-300 to-amber-500'
-                      : 'bg-gradient-to-b from-purple-400 to-purple-600'
-                  }`}
-                >
-                  {/* Spiral stripes */}
-                  <div className="w-full h-full flex flex-col justify-between py-1 opacity-40">
-                    <div className="h-0.5 bg-white -rotate-12" />
-                    <div className="h-0.5 bg-white -rotate-12" />
-                    <div className="h-0.5 bg-white -rotate-12" />
+                  {/* 3D NUMBER CANDLE BODY */}
+                  <div
+                    className={`relative min-w-[38px] sm:min-w-[42px] h-14 sm:h-16 px-2 rounded-xl shadow-lg border-2 flex items-center justify-center font-serif font-black text-2xl sm:text-3xl select-none ${
+                      idx % 2 === 0
+                        ? 'bg-gradient-to-br from-rose-400 via-rose-500 to-red-600 text-white border-amber-300 shadow-rose-500/30'
+                        : 'bg-gradient-to-br from-amber-300 via-amber-400 to-amber-500 text-amber-950 border-white shadow-amber-500/30'
+                    }`}
+                  >
+                    {/* Wax Gloss Highlight */}
+                    <div className="absolute top-1 left-1.5 w-2 h-4 rounded-full bg-white/40 blur-[0.5px] pointer-events-none" />
+                    {/* Number Digit */}
+                    <span className="drop-shadow-md tracking-tight leading-none">
+                      {digit}
+                    </span>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+
+            {/* Little Age Indicator Pill */}
+            <div className="mt-1.5 px-3 py-0.5 rounded-full bg-amber-400/20 border border-amber-400/40 text-[10px] font-bold text-amber-700 dark:text-amber-300 shadow-xs">
+              Lilin Usia Ke-{displayAge} Tahun 🕯️
+            </div>
           </div>
 
           {/* CAKE TOP TIER */}
@@ -318,25 +328,24 @@ export const InteractiveCake: React.FC<InteractiveCakeProps> = ({
             </div>
           </div>
 
-          {/* CAKE MIDDLE TIER (ELEGANT BANNER - UNBREAKABLE TEXT) */}
-          <div className="relative w-64 sm:w-72 h-16 bg-gradient-to-r from-amber-200 via-rose-200 to-amber-200 dark:from-neutral-900 dark:via-rose-900 dark:to-neutral-900 border-x-2 border-b-2 border-amber-300/40 shadow-lg flex items-center justify-center overflow-hidden px-3">
-            {/* Cream swirls ribbon pattern */}
-            <div className="absolute inset-x-0 h-1 bg-amber-400/50" />
+          {/* CAKE MIDDLE TIER (ELEGANT BANNER - NO HORIZONTAL CUT-THROUGH LINES) */}
+          <div className="relative w-64 sm:w-72 h-14 bg-gradient-to-r from-amber-200 via-rose-200 to-amber-200 dark:from-neutral-900 dark:via-rose-900 dark:to-neutral-900 border-x-2 border-amber-300/40 shadow-md flex items-center justify-center overflow-hidden px-3">
             <div className="flex items-center justify-center gap-2 whitespace-nowrap text-[11px] sm:text-xs font-black tracking-widest text-amber-950 dark:text-amber-100 uppercase drop-shadow-sm">
-              <span className="text-amber-400 text-xs">✨</span>
-              <span className="font-serif tracking-wider font-extrabold">HAPPY BIRTHDAY</span>
-              <span className="text-amber-400 text-xs">✨</span>
+              <span className="text-amber-500 text-xs">✨</span>
+              <span className="font-serif tracking-widest font-extrabold">HAPPY BIRTHDAY</span>
+              <span className="text-amber-500 text-xs">✨</span>
             </div>
           </div>
 
-          {/* CAKE BASE TIER (WITH RECIPIENT NAME PLAQUE) */}
-          <div className="relative w-76 sm:w-84 h-20 rounded-b-2xl bg-gradient-to-r from-amber-300 via-pink-200 to-amber-300 dark:from-stone-900 dark:via-rose-950 dark:to-stone-900 border-2 border-amber-400/50 shadow-xl flex items-center justify-center px-4">
-            <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/20 dark:bg-black/45 border border-amber-400/40 backdrop-blur-xs shadow-inner">
-              <span className="text-base">🍫</span>
-              <span className="text-sm sm:text-base font-extrabold text-amber-950 dark:text-amber-100 font-serif tracking-wide truncate max-w-[180px] sm:max-w-[220px]">
+          {/* CAKE BASE TIER (WITH CRYSTAL-CLEAR RECIPIENT NAME PLAQUE - NO LINES CROSSING) */}
+          <div className="relative w-76 sm:w-84 h-22 rounded-b-2xl bg-gradient-to-r from-amber-300 via-pink-200 to-amber-300 dark:from-stone-900 dark:via-rose-950 dark:to-stone-900 border-2 border-amber-400/50 shadow-xl flex items-center justify-center px-4">
+            {/* Opaque Solid Dark Chocolate Plaque - NO STRIPES, NO DIVIDERS, ZERO OBSTRUCTION */}
+            <div className="relative z-20 mx-auto px-5 sm:px-7 py-2 rounded-2xl bg-gradient-to-r from-stone-950 via-stone-900 to-stone-950 border-2 border-amber-300 shadow-2xl flex items-center justify-center gap-2 max-w-[92%]">
+              <span className="text-sm select-none">🍫</span>
+              <span className="text-sm sm:text-base font-extrabold text-amber-200 dark:text-amber-100 font-serif tracking-wide truncate">
                 {recipientName}
               </span>
-              <span className="text-base">🎉</span>
+              <span className="text-sm select-none">🎉</span>
             </div>
           </div>
 
